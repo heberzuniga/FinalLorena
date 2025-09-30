@@ -1,7 +1,9 @@
-# Bienestar & Belleza — Streamlit (Compat)
-Versión compatible con más entornos de Streamlit/Pillow:
-- Envia bytes a `st.image` (no objetos PIL).
-- Evita `border=` en `st.container` cuando no está disponible.
+# Bienestar & Belleza — Streamlit (Ultimate Compat)
+
+- Usa DejaVuSans si está disponible (Pillow suele incluirla) para evitar UnicodeEncodeError.
+- Si no existe TTF, limpia caracteres no ASCII cuando se dibuja texto en imágenes.
+- `st.image` siempre recibe bytes PNG.
+- Cards compatibles con versiones sin `border=`.
 
 ## Local
 ```bash
@@ -10,4 +12,4 @@ streamlit run app.py
 ```
 
 ## Cloud
-Sube a GitHub y haz deploy el archivo `app.py`.
+Sube a GitHub y crea la app apuntando a `app.py`.

@@ -1,8 +1,10 @@
-# app.py (compat)
+# app.py (ultimate-compat)
 # ------------------------------------------------------------
-# Bienestar & Belleza — Tienda Estática con Streamlit (Compat)
-# - Evita TypeError en st.image enviando bytes en lugar de PIL
-# - Evita TypeError en st.container(border=...) con un helper
+# Bienestar & Belleza — Streamlit (Ultimate Compat)
+# - Evita UnicodeEncodeError usando DejaVuSans si existe.
+# - Si no hay TTF, cae a fuente por defecto y limpia texto no ASCII.
+# - st.image recibe bytes siempre.
+# - Cards compatibles con versiones sin border=.
 # ------------------------------------------------------------
 
 import streamlit as st
@@ -11,6 +13,7 @@ from datetime import datetime
 from io import BytesIO
 import math
 import random
+import unicodedata
 from contextlib import contextmanager
 
 st.set_page_config(
@@ -58,10 +61,9 @@ def css():
     )
 css()
 
-# ---------- Helpers de compatibilidad ----------
+# -------- Compat helpers --------
 @contextmanager
 def card():
-    """Usa border=True si existe, si no, usa container normal."""
     try:
         with st.container(border=True):
             yield
@@ -70,14 +72,39 @@ def card():
             yield
 
 def pil_to_bytes(img: Image.Image) -> bytes:
-    buf = BytesIO()
-    # Convertir a RGB por si la PIL retorna modo no soportado
     if img.mode not in ("RGB", "RGBA"):
         img = img.convert("RGB")
+    buf = BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()
 
-# ---------- Generación de imágenes ----------
+def try_load_font(name: str, size: int):
+    try:
+        return ImageFont.truetype(name, size), True
+    except Exception:
+        return None, False
+
+def load_fonts():
+    # Intentar fuentes con buena cobertura Unicode
+    for fname in ("DejaVuSans.ttf", "NotoSans-Regular.ttf", "Arial.ttf", "arial.ttf"):
+        f, ok = try_load_font(fname, 48)
+        if ok:
+            f_title = f
+            # sub
+            f_sub, _ = try_load_font(fname, 22)
+            if not _:
+                f_sub = f_title
+            return f_title, f_sub, True
+    # Fallback a bitmap default (sin Unicode robusto)
+    return ImageFont.load_default(), ImageFont.load_default(), False
+
+def safe_text(text: str, unicode_ok: bool) -> str:
+    if unicode_ok:
+        return text
+    # quitar caracteres no ASCII para evitar UnicodeEncodeError en bitmap font
+    return text.encode("ascii", "ignore").decode("ascii")
+
+# -------- Imagenes --------
 def gradient_image(size=(800, 600), c1=(124, 58, 237), c2=(20, 184, 166)):
     w, h = size
     base = Image.new("RGB", size, c1)
@@ -89,14 +116,16 @@ def gradient_image(size=(800, 600), c1=(124, 58, 237), c2=(20, 184, 166)):
 
 def draw_text_center(img, text, subtitle=None):
     draw = ImageDraw.Draw(img)
-    try:
-        font_title = ImageFont.truetype("arial.ttf", 48)
-        font_sub = ImageFont.truetype("arial.ttf", 22)
-    except:
-        font_title = ImageFont.load_default()
-        font_sub = ImageFont.load_default()
+    font_title, font_sub, unicode_ok = load_fonts()
+
+    # Sanitizar si no tenemos fuente Unicode
+    text = safe_text(text, unicode_ok)
+    subtitle = safe_text(subtitle, unicode_ok) if subtitle else None
+
     W, H = img.size
-    # wrap manual
+    max_width = int(W * 0.85)
+
+    # Wrap manual del título
     words = text.split()
     lines = []
     line = ""
@@ -105,16 +134,19 @@ def draw_text_center(img, text, subtitle=None):
         try:
             width = draw.textlength(test, font=font_title)
         except Exception:
-            width = len(test) * 10  # fallback
-        if width <= int(W * 0.85):
+            width = len(test) * 10
+        if width <= max_width:
             line = test
         else:
-            lines.append(line)
+            if line:
+                lines.append(line)
             line = w
     if line:
         lines.append(line)
+
     total_h = len(lines) * 56 + (34 if subtitle else 0)
     y = (H - total_h) // 2
+
     for ln in lines:
         try:
             w = draw.textlength(ln, font=font_title)
@@ -122,6 +154,7 @@ def draw_text_center(img, text, subtitle=None):
             w = len(ln) * 10
         draw.text(((W - w) / 2, y), ln, fill="white", font=font_title)
         y += 56
+
     if subtitle:
         try:
             w = draw.textlength(subtitle, font=font_sub)
@@ -137,10 +170,12 @@ def product_image(title, color1, color2, overlay=""):
     return draw_text_center(img, title)
 
 def hero_image():
+    # El subtítulo contiene bullets y acentos; se sanitiza solo si no hay TTF
+    subtitle = "Cuidado de la piel • Cabello • Spa • Maquillaje • Fitness"
     img = gradient_image((1800, 520), (124, 58, 237), (192, 132, 252))
-    return draw_text_center(img, "Bienestar & Belleza", "Cuidado de la piel • Cabello • Spa • Maquillaje • Fitness")
+    return draw_text_center(img, "Bienestar & Belleza", subtitle)
 
-# ---------- Datos ----------
+# -------- Datos --------
 random.seed(42)
 CATEGORIES = ["Cuidado de la Piel","Cabello","Spa & Aromaterapia","Maquillaje","Fitness & Wellness"]
 
