@@ -1,9 +1,8 @@
-# Bienestar & Belleza — Streamlit (Ultimate Compat)
+# Bienestar & Belleza — Streamlit (Failsafe)
 
-- Usa DejaVuSans si está disponible (Pillow suele incluirla) para evitar UnicodeEncodeError.
-- Si no existe TTF, limpia caracteres no ASCII cuando se dibuja texto en imágenes.
-- `st.image` siempre recibe bytes PNG.
-- Cards compatibles con versiones sin `border=`.
+- `show_image()` con 3 rutas: numpy → bytes → HTML base64.
+- Fuentes Unicode (DejaVu/Noto/Arial) o limpieza ASCII si falta TTF.
+- Compatible con versiones de Streamlit sin `border=`.
 
 ## Local
 ```bash
@@ -12,4 +11,4 @@ streamlit run app.py
 ```
 
 ## Cloud
-Sube a GitHub y crea la app apuntando a `app.py`.
+Sube a GitHub y apunta a `app.py`.

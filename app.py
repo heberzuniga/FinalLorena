@@ -1,10 +1,9 @@
-# app.py (ultimate-compat)
+# app.py (failsafe)
 # ------------------------------------------------------------
-# Bienestar & Belleza — Streamlit (Ultimate Compat)
-# - Evita UnicodeEncodeError usando DejaVuSans si existe.
-# - Si no hay TTF, cae a fuente por defecto y limpia texto no ASCII.
-# - st.image recibe bytes siempre.
-# - Cards compatibles con versiones sin border=.
+# Bienestar & Belleza — Streamlit (Failsafe)
+# - show_image(): intenta st.image con numpy array; si falla, usa HTML base64.
+# - Fuentes Unicode (DejaVu/Noto/Arial) o limpieza ASCII si no hay TTF.
+# - Cards compatibles (border fallback).
 # ------------------------------------------------------------
 
 import streamlit as st
@@ -13,7 +12,8 @@ from datetime import datetime
 from io import BytesIO
 import math
 import random
-import unicodedata
+import base64
+import numpy as np
 from contextlib import contextmanager
 
 st.set_page_config(
@@ -61,7 +61,7 @@ def css():
     )
 css()
 
-# -------- Compat helpers --------
+# ---------- Compat helpers ----------
 @contextmanager
 def card():
     try:
@@ -71,12 +71,34 @@ def card():
         with st.container():
             yield
 
-def pil_to_bytes(img: Image.Image) -> bytes:
+def to_png_bytes(img: Image.Image) -> bytes:
     if img.mode not in ("RGB", "RGBA"):
         img = img.convert("RGB")
     buf = BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()
+
+def show_image(img: Image.Image, use_container_width=True):
+    """Muestra imagen con múltiples rutas de compatibilidad."""
+    try:
+        # 1) Intentar como arreglo numpy (muy compatible con st.image)
+        arr = np.array(img.convert("RGB"))
+        return st.image(arr, use_container_width=use_container_width)
+    except Exception:
+        pass
+    try:
+        # 2) Intentar bytes PNG
+        png = to_png_bytes(img)
+        return st.image(png, use_container_width=use_container_width)
+    except Exception:
+        pass
+    # 3) Fallback HTML base64
+    try:
+        png = to_png_bytes(img)
+        b64 = base64.b64encode(png).decode("ascii")
+        st.markdown(f'<img src="data:image/png;base64,{b64}" style="width:100%;height:auto;border-radius:12px;" />', unsafe_allow_html=True)
+    except Exception as e:
+        st.error(f"No se pudo mostrar la imagen: {e}")
 
 def try_load_font(name: str, size: int):
     try:
@@ -85,26 +107,25 @@ def try_load_font(name: str, size: int):
         return None, False
 
 def load_fonts():
-    # Intentar fuentes con buena cobertura Unicode
     for fname in ("DejaVuSans.ttf", "NotoSans-Regular.ttf", "Arial.ttf", "arial.ttf"):
         f, ok = try_load_font(fname, 48)
         if ok:
             f_title = f
-            # sub
-            f_sub, _ = try_load_font(fname, 22)
-            if not _:
+            f_sub, ok2 = try_load_font(fname, 22)
+            if not ok2:
                 f_sub = f_title
             return f_title, f_sub, True
-    # Fallback a bitmap default (sin Unicode robusto)
     return ImageFont.load_default(), ImageFont.load_default(), False
 
 def safe_text(text: str, unicode_ok: bool) -> str:
+    if text is None:
+        return None
     if unicode_ok:
         return text
-    # quitar caracteres no ASCII para evitar UnicodeEncodeError en bitmap font
+    # quitar no-ASCII
     return text.encode("ascii", "ignore").decode("ascii")
 
-# -------- Imagenes --------
+# ---------- Generación de imágenes ----------
 def gradient_image(size=(800, 600), c1=(124, 58, 237), c2=(20, 184, 166)):
     w, h = size
     base = Image.new("RGB", size, c1)
@@ -117,15 +138,13 @@ def gradient_image(size=(800, 600), c1=(124, 58, 237), c2=(20, 184, 166)):
 def draw_text_center(img, text, subtitle=None):
     draw = ImageDraw.Draw(img)
     font_title, font_sub, unicode_ok = load_fonts()
-
-    # Sanitizar si no tenemos fuente Unicode
     text = safe_text(text, unicode_ok)
-    subtitle = safe_text(subtitle, unicode_ok) if subtitle else None
+    subtitle = safe_text(subtitle, unicode_ok)
 
     W, H = img.size
     max_width = int(W * 0.85)
 
-    # Wrap manual del título
+    # Wrap título
     words = text.split()
     lines = []
     line = ""
@@ -170,12 +189,11 @@ def product_image(title, color1, color2, overlay=""):
     return draw_text_center(img, title)
 
 def hero_image():
-    # El subtítulo contiene bullets y acentos; se sanitiza solo si no hay TTF
     subtitle = "Cuidado de la piel • Cabello • Spa • Maquillaje • Fitness"
     img = gradient_image((1800, 520), (124, 58, 237), (192, 132, 252))
     return draw_text_center(img, "Bienestar & Belleza", subtitle)
 
-# -------- Datos --------
+# ---------- Datos ----------
 random.seed(42)
 CATEGORIES = ["Cuidado de la Piel","Cabello","Spa & Aromaterapia","Maquillaje","Fitness & Wellness"]
 
@@ -293,7 +311,7 @@ with st.sidebar:
 # HERO
 hero = hero_image()
 st.markdown('<div class="hero">', unsafe_allow_html=True)
-st.image(pil_to_bytes(hero), use_container_width=True)
+show_image(hero, use_container_width=True)
 st.markdown(
     """
     <div style="margin-top:12px;">
@@ -314,7 +332,7 @@ for i, prod in enumerate(featured):
     with cols[i % 3]:
         with card():
             img = get_product_image(prod["id"], prod["name"], prod["cat"])
-            st.image(pil_to_bytes(img), use_container_width=True)
+            show_image(img, use_container_width=True)
             st.markdown(f"**{prod['name']}**")
             st.caption(prod["desc"])
             st.markdown(f"{STAR * int(round(prod['rating']))} · {prod['rating']:.1f}")
@@ -353,7 +371,7 @@ else:
                     with ccols[j]:
                         with card():
                             img = get_product_image(prod["id"], prod["name"], prod["cat"])
-                            st.image(pil_to_bytes(img), use_container_width=True)
+                            show_image(img, use_container_width=True)
                             st.markdown(f"**{prod['name']}**")
                             st.caption(prod["desc"])
                             st.markdown(f"{STAR * int(round(prod['rating']))} · {prod['rating']:.1f}")
@@ -375,7 +393,7 @@ for i, pm in enumerate(promos):
         c1, c2 = PALETTE[pm["cat"]]
         img = product_image(pm["title"], c1, c2, overlay="PROMO")
         with card():
-            st.image(pil_to_bytes(img), use_container_width=True)
+            show_image(img, use_container_width=True)
             st.markdown(f"**{pm['title']}**")
             st.caption(" + ".join(pm["items"]))
             st.markdown(f"**Bs. {pm['price']:.2f}**  · Ahorras **Bs. {pm['save']:.2f}**")
@@ -404,7 +422,7 @@ for i, (name, text) in enumerate(testimonials):
         with card():
             avatar = gradient_image((720, 220), (200, 200, 255), (180, 240, 220))
             draw_text_center(avatar, f"{HEART} {name}", "")
-            st.image(pil_to_bytes(avatar), use_container_width=True)
+            show_image(avatar, use_container_width=True)
             st.markdown(f"_{text}_")
             st.markdown(f"{CHECK} Compra verificada")
 
